@@ -7,7 +7,8 @@ pip install -r requirements.txt
 
 echo.
 echo Building executable...
-pyinstaller --onefile --windowed --name=InvoicePrinter invoice_printer.py
+REM Use python -m PyInstaller instead of pyinstaller command (more reliable)
+python -m PyInstaller --onefile --windowed --name=InvoicePrinter invoice_printer.py
 
 if errorlevel 1 (
     echo Build failed!

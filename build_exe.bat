@@ -8,6 +8,12 @@ python -c "import pypdf" 2>nul
 if errorlevel 1 (
     echo Installing dependencies...
     pip install -r requirements.txt
+    if errorlevel 1 (
+        echo ERROR: Failed to install dependencies
+        echo Please check your Python installation and internet connection.
+        pause
+        exit /b 1
+    )
 ) else (
     echo Dependencies already installed.
 )
@@ -16,19 +22,36 @@ REM Check if PyInstaller is installed
 python -c "import PyInstaller" 2>nul
 if errorlevel 1 (
     echo Installing PyInstaller...
+    echo (If this fails, try running as Administrator or check antivirus settings)
     pip install pyinstaller
+    if errorlevel 1 (
+        echo.
+        echo WARNING: PyInstaller installation had issues.
+        echo Trying to continue anyway...
+        echo.
+    )
 )
 
 echo.
 echo Building executable (this may take a few minutes)...
 echo.
 
-REM Build the executable directly
-pyinstaller --onefile --windowed --name=InvoicePrinter invoice_printer.py
+REM Build the executable using python -m PyInstaller (more reliable than pyinstaller command)
+python -m PyInstaller --onefile --windowed --name=InvoicePrinter invoice_printer.py
 
 if errorlevel 1 (
     echo.
-    echo Build failed. Please check the error messages above.
+    echo ========================================
+    echo Build failed!
+    echo ========================================
+    echo.
+    echo Troubleshooting steps:
+    echo 1. Try running this script as Administrator (right-click -^> Run as administrator)
+    echo 2. Temporarily disable antivirus and try again
+    echo 3. Make sure no other programs are using Python files
+    echo 4. Try: pip install --upgrade pyinstaller
+    echo 5. Try: python -m pip install --upgrade pip
+    echo.
     pause
     exit /b 1
 )

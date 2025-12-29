@@ -20,9 +20,9 @@ def build_exe():
     print("Building Windows executable...")
     print("This may take a few minutes...\n")
     
-    # PyInstaller command
+    # PyInstaller command - use python -m PyInstaller (more reliable)
     cmd = [
-        "pyinstaller",
+        sys.executable, "-m", "PyInstaller",
         "--onefile",  # Create a single executable file
         "--windowed",  # No console window (GUI only)
         "--name=InvoicePrinter",  # Name of the executable
