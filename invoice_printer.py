@@ -1,395 +1,246 @@
 #!/usr/bin/env python3
 """
-Invoice Printer Application
-Automatically prints invoices with triplicate copies of last pages
-Works on both Windows and Mac
+Invoice Triplicate-Only Printer
+Prints ONLY the last triplicate page(s) of each invoice
+Skips any invoice with more than 11 pages
 """
 
 import os
-import sys
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, filedialog, messagebox
 from pathlib import Path
 from pypdf import PdfReader, PdfWriter
-import shutil
-import subprocess
 import platform
+import subprocess
 import time
 
-
-class InvoicePrinterApp:
+class TriplicateOnlyPrinter:
     def __init__(self, root):
         self.root = root
-        self.root.title("Invoice Printer - Triplicate Last Pages")
-        self.root.geometry("600x400")
+        self.root.title("Triplicate Pages Only Printer (Skip >11 Pages)")
+        self.root.geometry("700x550")
         self.root.resizable(False, False)
-        
-        # Variables
-        # Get the directory where the script/exe is located
-        if getattr(sys, 'frozen', False):
-            # Running as compiled executable
-            self.base_path = Path(sys.executable).parent
-        else:
-            # Running as script
-            self.base_path = Path(__file__).parent
-        
-        self.prefix = tk.StringVar()
-        self.start_invoice = tk.StringVar()
-        self.end_invoice = tk.StringVar()
-        
+
+        self.folder_var = tk.StringVar()
+        self.prefix_var = tk.StringVar()
+        self.start_var = tk.StringVar()
+        self.end_var = tk.StringVar()
+
         self.setup_ui()
-        
+
     def setup_ui(self):
-        # Main frame
         main_frame = ttk.Frame(self.root, padding="20")
         main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
-        
-        # Current directory info
-        folder_info = ttk.Label(main_frame, text=f"Current Directory: {self.base_path}", 
-                               font=("Arial", 9), foreground="gray")
-        folder_info.grid(row=0, column=0, columnspan=3, sticky=tk.W, pady=5)
-        
+
+        # Folder selection
+        ttk.Label(main_frame, text="Invoice Folder:").grid(row=0, column=0, sticky=tk.W, pady=5)
+        ttk.Entry(main_frame, textvariable=self.folder_var, width=60).grid(row=0, column=1, padx=5, pady=5)
+        ttk.Button(main_frame, text="Browse", command=self.browse_folder).grid(row=0, column=2, padx=5)
+
         # Prefix
         ttk.Label(main_frame, text="Prefix (optional):").grid(row=1, column=0, sticky=tk.W, pady=5)
-        ttk.Entry(main_frame, textvariable=self.prefix, width=50).grid(row=1, column=1, padx=5, pady=5)
-        ttk.Label(main_frame, text="e.g., C or leave empty", font=("Arial", 8)).grid(row=2, column=1, sticky=tk.W, padx=5)
-        
-        # Start Invoice
+        ttk.Entry(main_frame, textvariable=self.prefix_var, width=60).grid(row=1, column=1, padx=5, pady=5)
+        ttk.Label(main_frame, text="e.g., 'C' for C300.pdf, or 'Invoice no Example - '", 
+                  font=("Arial", 8), foreground="gray").grid(row=2, column=1, sticky=tk.W)
+
+        # Start and End
         ttk.Label(main_frame, text="Start Invoice No:").grid(row=3, column=0, sticky=tk.W, pady=5)
-        ttk.Entry(main_frame, textvariable=self.start_invoice, width=50).grid(row=3, column=1, padx=5, pady=5)
-        
-        # End Invoice
+        ttk.Entry(main_frame, textvariable=self.start_var, width=30).grid(row=3, column=1, sticky=tk.W, padx=5)
+
         ttk.Label(main_frame, text="End Invoice No:").grid(row=4, column=0, sticky=tk.W, pady=5)
-        ttk.Entry(main_frame, textvariable=self.end_invoice, width=50).grid(row=4, column=1, padx=5, pady=5)
-        
+        ttk.Entry(main_frame, textvariable=self.end_var, width=30).grid(row=4, column=1, sticky=tk.W, padx=5)
+
+        # Info label about skip rule
+        ttk.Label(main_frame, text="Note: Invoices with more than 11 pages will be SKIPPED", 
+                  foreground="red", font=("Arial", 9, "bold")).grid(row=5, column=0, columnspan=3, pady=10)
+
         # Buttons
-        button_frame = ttk.Frame(main_frame)
-        button_frame.grid(row=5, column=0, columnspan=3, pady=20)
-        
-        ttk.Button(button_frame, text="Print Invoices", command=self.print_invoices, width=20).pack(side=tk.LEFT, padx=10)
-        ttk.Button(button_frame, text="Exit", command=self.root.quit, width=20).pack(side=tk.LEFT, padx=10)
-        
-        # Status text
-        self.status_text = tk.Text(main_frame, height=10, width=70, wrap=tk.WORD)
-        self.status_text.grid(row=6, column=0, columnspan=3, pady=10)
+        btn_frame = ttk.Frame(main_frame)
+        btn_frame.grid(row=6, column=0, columnspan=3, pady=20)
+        ttk.Button(btn_frame, text="Print Triplicate Pages Only", command=self.start_printing).pack(side=tk.LEFT, padx=10)
+        ttk.Button(btn_frame, text="Exit", command=self.root.quit).pack(side=tk.LEFT, padx=10)
+
+        # Status log
+        self.status_text = tk.Text(main_frame, height=15, width=80, wrap=tk.WORD)
+        self.status_text.grid(row=7, column=0, columnspan=3, pady=10)
         scrollbar = ttk.Scrollbar(main_frame, orient=tk.VERTICAL, command=self.status_text.yview)
-        scrollbar.grid(row=6, column=3, sticky=(tk.N, tk.S))
+        scrollbar.grid(row=7, column=3, sticky=(tk.N, tk.S))
         self.status_text.configure(yscrollcommand=scrollbar.set)
-        
-    def log_status(self, message):
+
+        # Default folder
+        self.folder_var.set(os.getcwd())
+
+    def browse_folder(self):
+        folder = filedialog.askdirectory()
+        if folder:
+            self.folder_var.set(folder)
+
+    def log(self, message):
         self.status_text.insert(tk.END, message + "\n")
         self.status_text.see(tk.END)
         self.root.update()
-        
-    def get_triplicate_pages(self, total_pages):
-        """
-        Determine how many last pages should be triplicated
-        - 3-5 pages: last 1 page triplicate
-        - 6-8 pages: last 2 pages triplicate
-        - 9-11 pages: last 3 pages triplicate
-        - Pattern: for pages in range (3n, 3n+2], last n pages triplicate
-        """
+
+    def get_triplicate_count(self, total_pages):
         if total_pages < 3:
             return 0
-        
-        # Calculate: pages 3-5 -> 1, pages 6-8 -> 2, pages 9-11 -> 3, etc.
-        # Formula: ceil((total_pages - 2) / 3)
-        triplicate_count = ((total_pages - 2) + 2) // 3
-        return min(triplicate_count, total_pages)  # Don't exceed total pages
-        
+        # 3-5 → 1, 6-8 → 2, 9-11 → 3
+        return min(((total_pages - 2) + 2) // 3, 3)  # Max 3 triplicate pages
+
     def create_triplicate_pdf(self, pdf_path):
-        """
-        Create a new PDF with ONLY the triplicate pages (last page(s))
-        (No original pages, just the last page(s) printed once)
-        """
-        try:
-            reader = PdfReader(pdf_path)
-            writer = PdfWriter()
-            total_pages = len(reader.pages)
-            
-            triplicate_count = self.get_triplicate_pages(total_pages)
-            
-            if triplicate_count == 0:
-                raise Exception("PDF has less than 3 pages - no triplicate pages to print")
-            
-            # Add ONLY the triplicate pages (last page(s), printed once)
-            start_triplicate = total_pages - triplicate_count
-            # Add the last page(s) once
-            for i in range(start_triplicate, total_pages):
-                page = reader.pages[i]
-                writer.add_page(page)
-            
-            # Save to temporary file
-            temp_path = pdf_path.replace('.pdf', '_temp_print.pdf')
-            with open(temp_path, 'wb') as output_file:
-                writer.write(output_file)
-            
-            # Verify the temp file was created correctly
-            verify_reader = PdfReader(temp_path)
-            final_page_count = len(verify_reader.pages)
-            expected_pages = triplicate_count  # Just the last page(s), once
-            
-            if final_page_count != expected_pages:
-                raise Exception(
-                    f"PDF creation verification failed: "
-                    f"Expected {expected_pages} pages, got {final_page_count} pages"
-                )
-                
-            return temp_path, total_pages, triplicate_count
-            
-        except Exception as e:
-            raise Exception(f"Error processing PDF {pdf_path}: {str(e)}")
-    
+        reader = PdfReader(pdf_path)
+        total_pages = len(reader.pages)
+
+        if total_pages > 11:
+            raise ValueError(f"Too many pages ({total_pages} > 11)")
+
+        triplicate_count = self.get_triplicate_count(total_pages)
+        if triplicate_count == 0:
+            raise ValueError("Less than 3 pages: no triplicate pages")
+
+        writer = PdfWriter()
+        # Add only the last N pages
+        for i in range(total_pages - triplicate_count, total_pages):
+            writer.add_page(reader.pages[i])
+
+        temp_path = str(Path(pdf_path).with_name(Path(pdf_path).stem + "_triplicate_only.pdf"))
+        with open(temp_path, "wb") as f:
+            writer.write(f)
+
+        return temp_path, triplicate_count, total_pages
+
     def print_pdf(self, pdf_path):
-        """
-        Print PDF using system default printer
-        Works on both Windows and Mac
-        """
+        if not os.path.exists(pdf_path):
+            raise FileNotFoundError(f"File not found: {pdf_path}")
+
         system = platform.system()
-        last_error = None
-        
-        try:
-            if system == "Windows":
-                # Windows: Try multiple methods to print PDF
-                errors = []
-                
-                # Method 1: Try using Adobe Reader if available (most reliable)
-                acroread_paths = [
-                    r"C:\Program Files\Adobe\Acrobat DC\Acrobat\Acrobat.exe",
-                    r"C:\Program Files (x86)\Adobe\Acrobat Reader DC\Reader\AcroRd32.exe",
-                    r"C:\Program Files\Adobe\Acrobat Reader DC\Reader\AcroRd32.exe",
-                ]
-                for acroread_path in acroread_paths:
-                    if os.path.exists(acroread_path):
-                        try:
-                            subprocess.run([
-                                acroread_path, "/t", pdf_path
-                            ], check=True, timeout=20)
-                            time.sleep(2)
-                            return  # Success!
-                        except Exception as e:
-                            errors.append(f"Adobe Reader: {str(e)}")
-                            last_error = e
-                            continue
-                
-                # Method 2: Try PowerShell with Start-Process and Print verb
-                try:
-                    # Normalize path for PowerShell
-                    pdf_path_normalized = pdf_path.replace("\\", "/")
-                    ps_command = f'Start-Process -FilePath "{pdf_path}" -Verb Print -WindowStyle Hidden'
-                    result = subprocess.run([
-                        "powershell", "-Command", ps_command
-                    ], check=True, timeout=20, capture_output=True, text=True)
-                    if result.returncode == 0:
-                        time.sleep(2)
-                        return  # Success!
-                    else:
-                        errors.append(f"PowerShell: {result.stderr}")
-                except Exception as e:
-                    errors.append(f"PowerShell: {str(e)}")
-                    last_error = e
-                
-                # Method 3: Try os.startfile with print verb (requires file association)
-                try:
-                    os.startfile(pdf_path, "print")
-                    time.sleep(2)
-                    return  # Success!
-                except Exception as e:
-                    errors.append(f"os.startfile: {str(e)}")
-                    last_error = e
-                
-                # Method 4: Try using Microsoft Edge (usually available on Windows 10+)
-                edge_paths = [
-                    r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
-                    r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
-                ]
-                for edge_path in edge_paths:
-                    if os.path.exists(edge_path):
-                        try:
-                            # Use file:// protocol
-                            pdf_uri = f"file:///{pdf_path.replace(chr(92), '/')}"
-                            subprocess.run([
-                                edge_path, "--print", pdf_uri
-                            ], check=True, timeout=20)
-                            time.sleep(2)
-                            return  # Success!
-                        except Exception as e:
-                            errors.append(f"Edge: {str(e)}")
-                            last_error = e
-                            continue
-                
-                # If all methods fail, provide helpful error with details
-                error_details = "\n".join(errors) if errors else "All print methods failed silently"
-                raise Exception(
-                    f"Could not print PDF.\n\n"
-                    f"Tried methods: Adobe Reader, PowerShell, os.startfile, Edge\n"
-                    f"Errors: {error_details}\n\n"
-                    f"Solutions:\n"
-                    f"1. Install Adobe Reader (free) from adobe.com\n"
-                    f"2. Set a default PDF application: Right-click PDF -> Open with -> Choose default\n"
-                    f"3. Manually print the temporary PDF file:\n"
-                    f"   {pdf_path}"
-                )
-                    
-            elif system == "Darwin":  # macOS
-                # macOS: use lpr command
-                subprocess.run(["lpr", pdf_path], check=True, timeout=30)
-            else:
-                # Linux fallback
-                subprocess.run(["lp", pdf_path], check=True, timeout=30)
-                
-            # Small delay to allow print job to be queued
-            time.sleep(1)
-                
-        except subprocess.TimeoutExpired:
-            raise Exception("Print command timed out")
-        except Exception as e:
-            raise Exception(f"Error printing PDF: {str(e)}")
-    
-    def find_invoice_files(self, folder_path, prefix, start_no, end_no):
-        """
-        Find all invoice PDF files in the given range
-        """
-        files = []
-        folder = Path(folder_path)
-        
-        if not folder.exists():
-            raise FileNotFoundError(f"Folder not found: {folder_path}")
-        
-        for invoice_no in range(start_no, end_no + 1):
-            # Try with prefix
-            if prefix:
-                filename = f"{prefix}{invoice_no}.pdf"
-            else:
-                filename = f"{invoice_no}.pdf"
-            
-            file_path = folder / filename
-            if file_path.exists():
-                files.append(file_path)
-            else:
-                self.log_status(f"Warning: {filename} not found")
-        
-        return files
-    
-    def print_invoices(self):
-        """
-        Main function to process and print invoices
-        """
-        # Clear status
-        self.status_text.delete(1.0, tk.END)
-        
-        # Use current directory (where exe/script is located)
-        folder_path = str(self.base_path)
-        prefix = self.prefix.get().strip()
-        start_str = self.start_invoice.get().strip()
-        end_str = self.end_invoice.get().strip()
-        
-        if not start_str or not end_str:
-            messagebox.showerror("Error", "Please enter start and end invoice numbers")
-            return
-        
-        try:
-            start_no = int(start_str)
-            end_no = int(end_str)
-        except ValueError:
-            messagebox.showerror("Error", "Invoice numbers must be integers")
-            return
-        
-        if start_no > end_no:
-            messagebox.showerror("Error", "Start invoice number must be less than or equal to end invoice number")
-            return
-        
-        try:
-            # Find invoice files
-            self.log_status(f"Searching for invoices in: {folder_path}")
-            self.log_status(f"Range: {start_no} to {end_no}...")
-            invoice_files = self.find_invoice_files(folder_path, prefix, start_no, end_no)
-            
-            if not invoice_files:
-                messagebox.showwarning("Warning", "No invoice files found in the specified range")
+
+        if system == "Windows":
+            # Method 1: os.startfile - simplest and often silent
+            try:
+                os.startfile(pdf_path, "print")
+                time.sleep(2)
                 return
-            
-            self.log_status(f"Found {len(invoice_files)} invoice file(s)")
-            
-            # Process each invoice
-            temp_files = []
-            for i, pdf_path in enumerate(invoice_files, 1):
-                self.log_status(f"\nProcessing {pdf_path.name} ({i}/{len(invoice_files)})...")
-                temp_path = None
-                
-                try:
-                    # Create triplicate PDF
-                    temp_path, total_pages, triplicate_count = self.create_triplicate_pdf(str(pdf_path))
-                    temp_files.append(temp_path)
-                    
-                    # Verify temp file
-                    verify_reader = PdfReader(temp_path)
-                    final_pages = len(verify_reader.pages)
-                    expected_final = triplicate_count  # Just the last page(s), once
-                    
-                    self.log_status(f"  - Original PDF pages: {total_pages}")
-                    self.log_status(f"  - Triplicate pages: last {triplicate_count} page(s)")
-                    self.log_status(f"  - Pages to print: {final_pages} (once)")
-                    self.log_status(f"  - Expected pages: {expected_final}")
-                    
-                    if final_pages != expected_final:
-                        self.log_status(f"  - ⚠ WARNING: Page count mismatch!")
-                    
-                    self.log_status(f"  - Temp file: {os.path.basename(temp_path)}")
-                    self.log_status(f"  - Temp file path: {temp_path}")
-                    self.log_status(f"  - Sending to printer...")
-                    
-                    # Print the TEMP file (not the original)
-                    if not os.path.exists(temp_path):
-                        raise Exception(f"Temp file not found: {temp_path}")
-                    
+            except Exception as e:
+                self.log(f"  → os.startfile failed: {e}")
+
+            # Method 2: PowerShell
+            try:
+                ps_cmd = f'Start-Process -FilePath "{pdf_path}" -Verb Print'
+                subprocess.run(["powershell", "-Command", ps_cmd], check=True, timeout=15)
+                time.sleep(2)
+                return
+            except Exception as e:
+                self.log(f"  → PowerShell failed: {e}")
+
+            # Method 3: Adobe Reader
+            adobe_paths = [
+                r"C:\Program Files\Adobe\Acrobat Reader DC\Reader\AcroRd32.exe",
+                r"C:\Program Files (x86)\Adobe\Acrobat Reader DC\Reader\AcroRd32.exe",
+            ]
+            for path in adobe_paths:
+                if os.path.exists(path):
                     try:
-                        self.print_pdf(temp_path)
-                        self.log_status(f"  - ✓ Print command sent successfully")
-                        self.log_status(f"  - Please check your printer queue")
-                    except Exception as print_error:
-                        self.log_status(f"  - ✗ Print error: {str(print_error)}")
-                        self.log_status(f"  - Temp file saved at: {temp_path}")
-                        self.log_status(f"  - You can manually print this file if needed")
-                        raise
-                    
-                    # Small delay between print jobs to avoid overwhelming printer
-                    if i < len(invoice_files):
+                        subprocess.run([path, "/t", pdf_path], timeout=20)
                         time.sleep(2)
-                    
-                except Exception as e:
-                    self.log_status(f"  - ✗ Error: {str(e)}")
-                    # Still try to clean up temp file on error if it was created
-                    if temp_path and os.path.exists(temp_path):
-                        temp_files.append(temp_path)
-                    continue
-            
-            # Cleanup temporary files (keep them for 5 seconds to verify if needed)
-            self.log_status(f"\nTemporary files will be cleaned up in 5 seconds...")
-            self.log_status(f"(You can check the temp files if needed: {len(temp_files)} files)")
-            time.sleep(5)
-            
-            for temp_file in temp_files:
+                        return
+                    except:
+                        pass
+
+            raise Exception(
+                "All print methods failed. Please ensure:\n"
+                "1. A PDF viewer is installed (Edge, Chrome, or any PDF app)\n"
+                "2. PDF files are associated with a default application\n"
+                "3. Or install Adobe Reader for more reliable printing"
+            )
+
+        elif system == "Darwin":
+            subprocess.run(["lpr", pdf_path], check=True, timeout=30)
+        else:
+            subprocess.run(["lp", pdf_path], check=True, timeout=30)
+
+    def find_files(self):
+        folder = Path(self.folder_var.get())
+        if not folder.exists():
+            raise FileNotFoundError("Folder does not exist")
+
+        prefix = self.prefix_var.get().strip()
+        try:
+            start = int(self.start_var.get())
+            end = int(self.end_var.get())
+            if start > end:
+                raise ValueError
+        except ValueError:
+            raise ValueError("Invalid start/end numbers")
+
+        files = []
+        for num in range(start, end + 1):
+            filename = f"{prefix}{num}.pdf"
+            filepath = folder / filename
+            if filepath.exists():
+                files.append(str(filepath))
+            else:
+                self.log(f"Missing: {filename}")
+
+        return files
+
+    def start_printing(self):
+        self.status_text.delete(1.0, tk.END)
+
+        try:
+            files = self.find_files()
+            if not files:
+                messagebox.showwarning("No Files", "No matching invoice files found!")
+                return
+
+            self.log(f"Found {len(files)} invoice(s). Processing (skipping >11 pages)...\n")
+
+            printed_count = 0
+            skipped_count = 0
+            temp_files = []
+
+            for i, pdf in enumerate(files, 1):
+                filename = Path(pdf).name
+                self.log(f"Processing [{i}/{len(files)}]: {filename}")
+
                 try:
-                    if os.path.exists(temp_file):
-                        os.remove(temp_file)
+                    # This will raise error if >11 pages
+                    temp_pdf, count, total_pages = self.create_triplicate_pdf(pdf)
+                    temp_files.append(temp_pdf)
+
+                    self.log(f"  → {total_pages} pages → printing last {count} triplicate page(s)")
+                    self.log(f"  → Temp file: {Path(temp_pdf).name}")
+                    self.log(f"  → Sending to printer...")
+                    self.print_pdf(temp_pdf)
+                    self.log(f"  → Printed successfully\n")
+                    printed_count += 1
+                    time.sleep(1)
+
+                except ValueError as ve:
+                    msg = str(ve)
+                    if "Too many pages" in msg:
+                        self.log(f"  → ⚠ SKIPPED: {msg}\n")
+                        skipped_count += 1
+                    elif "Less than 3 pages" in msg:
+                        self.log(f"  → ⚠ SKIPPED: {msg}\n")
+                        skipped_count += 1
+                    else:
+                        self.log(f"  → Error: {msg}\n")
+
                 except Exception as e:
-                    self.log_status(f"  - Could not delete {os.path.basename(temp_file)}: {str(e)}")
-            
-            self.log_status(f"\n✓ Process completed!")
-            messagebox.showinfo("Success", f"Processed {len(invoice_files)} invoice(s)")
-            
+                    self.log(f"  → ✗ Print error: {e}\n")
+
+            summary = f"\nFinished!\nPrinted triplicate for {printed_count} invoice(s)"
+            if skipped_count > 0:
+                summary += f"\nSkipped {skipped_count} invoice(s) (>11 pages or <3 pages)"
+            self.log(summary)
+
+            messagebox.showinfo("Complete", summary + "\n\nTemporary PDFs saved in folder for checking.")
+
         except Exception as e:
-            messagebox.showerror("Error", f"An error occurred: {str(e)}")
-            self.log_status(f"Error: {str(e)}")
-
-
-def main():
-    root = tk.Tk()
-    app = InvoicePrinterApp(root)
-    root.mainloop()
-
+            messagebox.showerror("Error", str(e))
+            self.log(f"Error: {e}")
 
 if __name__ == "__main__":
-    main()
-
+    root = tk.Tk()
+    app = TriplicateOnlyPrinter(root)
+    root.mainloop()
