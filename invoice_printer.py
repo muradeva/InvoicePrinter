@@ -10,6 +10,11 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from pathlib import Path
 from pypdf import PdfReader, PdfWriter
+try:
+    from pypdf.generic import Transformation
+except ImportError:
+    # For older pypdf versions
+    from pypdf import Transformation
 import platform
 import subprocess
 import time
@@ -97,10 +102,41 @@ class TriplicateOnlyPrinter:
         if triplicate_count == 0:
             raise ValueError("Less than 3 pages: no triplicate pages")
 
+        # A5 size in points: 148mm x 210mm = 419.53 x 595.28 points
+        A5_WIDTH = 419.53
+        A5_HEIGHT = 595.28
+
         writer = PdfWriter()
-        # Add only the last N pages
+        # Add only the last N pages, resized to A5
         for i in range(total_pages - triplicate_count, total_pages):
-            writer.add_page(reader.pages[i])
+            page = reader.pages[i]
+            
+            # Get original page dimensions
+            original_width = float(page.mediabox.width)
+            original_height = float(page.mediabox.height)
+            
+            # Calculate scale to fit A5 while maintaining aspect ratio
+            scale_x = A5_WIDTH / original_width
+            scale_y = A5_HEIGHT / original_height
+            scale = min(scale_x, scale_y)  # Use smaller scale to fit both dimensions
+            
+            # Calculate new dimensions
+            new_width = original_width * scale
+            new_height = original_height * scale
+            
+            # Center the page on A5
+            offset_x = (A5_WIDTH - new_width) / 2
+            offset_y = (A5_HEIGHT - new_height) / 2
+            
+            # Create transformation: scale and translate
+            transformation = Transformation().scale(scale, scale).translate(offset_x, offset_y)
+            page.add_transformation(transformation)
+            
+            # Set mediabox to A5 size
+            page.mediabox.lower_left = (0, 0)
+            page.mediabox.upper_right = (A5_WIDTH, A5_HEIGHT)
+            
+            writer.add_page(page)
 
         temp_path = str(Path(pdf_path).with_name(Path(pdf_path).stem + "_triplicate_only.pdf"))
         with open(temp_path, "wb") as f:
@@ -196,23 +232,29 @@ class TriplicateOnlyPrinter:
 
             printed_count = 0
             skipped_count = 0
-            temp_files = []
 
             for i, pdf in enumerate(files, 1):
                 filename = Path(pdf).name
                 self.log(f"Processing [{i}/{len(files)}]: {filename}")
 
+                temp_pdf = None
                 try:
                     # This will raise error if >11 pages
                     temp_pdf, count, total_pages = self.create_triplicate_pdf(pdf)
-                    temp_files.append(temp_pdf)
 
-                    self.log(f"  → {total_pages} pages → printing last {count} triplicate page(s)")
-                    self.log(f"  → Temp file: {Path(temp_pdf).name}")
+                    self.log(f"  → {total_pages} pages → printing last {count} triplicate page(s) (A5 size)")
                     self.log(f"  → Sending to printer...")
                     self.print_pdf(temp_pdf)
                     self.log(f"  → Printed successfully\n")
                     printed_count += 1
+                    
+                    # Delete temp file after successful print
+                    try:
+                        if temp_pdf and os.path.exists(temp_pdf):
+                            os.remove(temp_pdf)
+                    except Exception as e:
+                        self.log(f"  → Warning: Could not delete temp file: {e}\n")
+                    
                     time.sleep(1)
 
                 except ValueError as ve:
@@ -228,13 +270,19 @@ class TriplicateOnlyPrinter:
 
                 except Exception as e:
                     self.log(f"  → ✗ Print error: {e}\n")
+                    # Try to delete temp file even on error
+                    try:
+                        if temp_pdf and os.path.exists(temp_pdf):
+                            os.remove(temp_pdf)
+                    except:
+                        pass
 
             summary = f"\nFinished!\nPrinted triplicate for {printed_count} invoice(s)"
             if skipped_count > 0:
                 summary += f"\nSkipped {skipped_count} invoice(s) (>11 pages or <3 pages)"
             self.log(summary)
 
-            messagebox.showinfo("Complete", summary + "\n\nTemporary PDFs saved in folder for checking.")
+            messagebox.showinfo("Complete", summary)
 
         except Exception as e:
             messagebox.showerror("Error", str(e))
