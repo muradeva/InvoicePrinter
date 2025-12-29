@@ -137,16 +137,72 @@ class InvoicePrinterApp:
         
         try:
             if system == "Windows":
-                # Windows: use default printer via subprocess for better control
-                # Try using PowerShell to print silently
+                # Windows: Try multiple methods to print PDF
+                # Escape backslashes for PowerShell
+                pdf_path_escaped = pdf_path.replace("\\", "\\\\").replace('"', '\\"')
+                
+                # Method 1: Try using Adobe Reader if available (most reliable)
                 try:
-                    subprocess.run([
-                        "powershell", "-Command",
-                        f'Start-Process -FilePath "{pdf_path}" -Verb Print -WindowStyle Hidden'
-                    ], check=True, timeout=10)
+                    acroread_paths = [
+                        r"C:\Program Files\Adobe\Acrobat DC\Acrobat\Acrobat.exe",
+                        r"C:\Program Files (x86)\Adobe\Acrobat Reader DC\Reader\AcroRd32.exe",
+                        r"C:\Program Files\Adobe\Acrobat Reader DC\Reader\AcroRd32.exe",
+                    ]
+                    for acroread_path in acroread_paths:
+                        if os.path.exists(acroread_path):
+                            subprocess.run([
+                                acroread_path, "/t", pdf_path
+                            ], check=True, timeout=20, creationflags=subprocess.CREATE_NO_WINDOW)
+                            time.sleep(2)
+                            return
                 except:
-                    # Fallback to os.startfile
+                    pass
+                
+                # Method 2: Try using Microsoft Edge (usually available on Windows 10+)
+                try:
+                    edge_paths = [
+                        r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+                        r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+                    ]
+                    for edge_path in edge_paths:
+                        if os.path.exists(edge_path):
+                            # Edge can print PDFs directly
+                            subprocess.run([
+                                edge_path, f"file:///{pdf_path}", "--print"
+                            ], check=True, timeout=20, creationflags=subprocess.CREATE_NO_WINDOW)
+                            time.sleep(2)
+                            return
+                except:
+                    pass
+                
+                # Method 3: Try PowerShell with Start-Process and Print verb
+                try:
+                    ps_command = f'Start-Process -FilePath "{pdf_path}" -Verb Print -WindowStyle Hidden'
+                    result = subprocess.run([
+                        "powershell", "-Command", ps_command
+                    ], check=True, timeout=20, capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW)
+                    time.sleep(2)
+                    return
+                except:
+                    pass
+                
+                # Method 4: Try os.startfile with print verb (requires file association)
+                try:
                     os.startfile(pdf_path, "print")
+                    time.sleep(2)
+                    return
+                except:
+                    pass
+                
+                # If all methods fail, provide helpful error
+                raise Exception(
+                    "Could not print PDF. Please try one of these:\n"
+                    "1. Install Adobe Reader (free) from adobe.com\n"
+                    "2. Set a default PDF application: Right-click PDF -> Open with -> Choose default\n"
+                    "3. Manually print the temporary PDF files from the invoice folder\n"
+                    f"Temporary file location: {pdf_path}"
+                )
+                    
             elif system == "Darwin":  # macOS
                 # macOS: use lpr command
                 subprocess.run(["lpr", pdf_path], check=True, timeout=30)
