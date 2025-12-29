@@ -99,8 +99,8 @@ class InvoicePrinterApp:
         
     def create_triplicate_pdf(self, pdf_path):
         """
-        Create a new PDF with ONLY triplicate copies of last pages
-        (No original pages, just the triplicate pages)
+        Create a new PDF with ONLY the triplicate pages (last page(s))
+        (No original pages, just the last page(s) printed once)
         """
         try:
             reader = PdfReader(pdf_path)
@@ -112,13 +112,12 @@ class InvoicePrinterApp:
             if triplicate_count == 0:
                 raise Exception("PDF has less than 3 pages - no triplicate pages to print")
             
-            # Add ONLY the triplicate pages (3 copies of each last page)
+            # Add ONLY the triplicate pages (last page(s), printed once)
             start_triplicate = total_pages - triplicate_count
-            # Add 3 copies of each last page(s)
-            for copy_num in range(3):  # 3 copies total
-                for i in range(start_triplicate, total_pages):
-                    page = reader.pages[i]
-                    writer.add_page(page)
+            # Add the last page(s) once
+            for i in range(start_triplicate, total_pages):
+                page = reader.pages[i]
+                writer.add_page(page)
             
             # Save to temporary file
             temp_path = pdf_path.replace('.pdf', '_temp_print.pdf')
@@ -128,7 +127,7 @@ class InvoicePrinterApp:
             # Verify the temp file was created correctly
             verify_reader = PdfReader(temp_path)
             final_page_count = len(verify_reader.pages)
-            expected_pages = triplicate_count * 3  # 3 copies of each triplicate page
+            expected_pages = triplicate_count  # Just the last page(s), once
             
             if final_page_count != expected_pages:
                 raise Exception(
@@ -147,73 +146,89 @@ class InvoicePrinterApp:
         Works on both Windows and Mac
         """
         system = platform.system()
+        last_error = None
         
         try:
             if system == "Windows":
                 # Windows: Try multiple methods to print PDF
-                # Escape backslashes for PowerShell
-                pdf_path_escaped = pdf_path.replace("\\", "\\\\").replace('"', '\\"')
+                errors = []
                 
                 # Method 1: Try using Adobe Reader if available (most reliable)
-                try:
-                    acroread_paths = [
-                        r"C:\Program Files\Adobe\Acrobat DC\Acrobat\Acrobat.exe",
-                        r"C:\Program Files (x86)\Adobe\Acrobat Reader DC\Reader\AcroRd32.exe",
-                        r"C:\Program Files\Adobe\Acrobat Reader DC\Reader\AcroRd32.exe",
-                    ]
-                    for acroread_path in acroread_paths:
-                        if os.path.exists(acroread_path):
+                acroread_paths = [
+                    r"C:\Program Files\Adobe\Acrobat DC\Acrobat\Acrobat.exe",
+                    r"C:\Program Files (x86)\Adobe\Acrobat Reader DC\Reader\AcroRd32.exe",
+                    r"C:\Program Files\Adobe\Acrobat Reader DC\Reader\AcroRd32.exe",
+                ]
+                for acroread_path in acroread_paths:
+                    if os.path.exists(acroread_path):
+                        try:
                             subprocess.run([
                                 acroread_path, "/t", pdf_path
-                            ], check=True, timeout=20, creationflags=subprocess.CREATE_NO_WINDOW)
+                            ], check=True, timeout=20)
                             time.sleep(2)
-                            return
-                except:
-                    pass
+                            return  # Success!
+                        except Exception as e:
+                            errors.append(f"Adobe Reader: {str(e)}")
+                            last_error = e
+                            continue
                 
-                # Method 2: Try using Microsoft Edge (usually available on Windows 10+)
+                # Method 2: Try PowerShell with Start-Process and Print verb
                 try:
-                    edge_paths = [
-                        r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
-                        r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
-                    ]
-                    for edge_path in edge_paths:
-                        if os.path.exists(edge_path):
-                            # Edge can print PDFs directly
-                            subprocess.run([
-                                edge_path, f"file:///{pdf_path}", "--print"
-                            ], check=True, timeout=20, creationflags=subprocess.CREATE_NO_WINDOW)
-                            time.sleep(2)
-                            return
-                except:
-                    pass
-                
-                # Method 3: Try PowerShell with Start-Process and Print verb
-                try:
+                    # Normalize path for PowerShell
+                    pdf_path_normalized = pdf_path.replace("\\", "/")
                     ps_command = f'Start-Process -FilePath "{pdf_path}" -Verb Print -WindowStyle Hidden'
                     result = subprocess.run([
                         "powershell", "-Command", ps_command
-                    ], check=True, timeout=20, capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW)
-                    time.sleep(2)
-                    return
-                except:
-                    pass
+                    ], check=True, timeout=20, capture_output=True, text=True)
+                    if result.returncode == 0:
+                        time.sleep(2)
+                        return  # Success!
+                    else:
+                        errors.append(f"PowerShell: {result.stderr}")
+                except Exception as e:
+                    errors.append(f"PowerShell: {str(e)}")
+                    last_error = e
                 
-                # Method 4: Try os.startfile with print verb (requires file association)
+                # Method 3: Try os.startfile with print verb (requires file association)
                 try:
                     os.startfile(pdf_path, "print")
                     time.sleep(2)
-                    return
-                except:
-                    pass
+                    return  # Success!
+                except Exception as e:
+                    errors.append(f"os.startfile: {str(e)}")
+                    last_error = e
                 
-                # If all methods fail, provide helpful error
+                # Method 4: Try using Microsoft Edge (usually available on Windows 10+)
+                edge_paths = [
+                    r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+                    r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+                ]
+                for edge_path in edge_paths:
+                    if os.path.exists(edge_path):
+                        try:
+                            # Use file:// protocol
+                            pdf_uri = f"file:///{pdf_path.replace(chr(92), '/')}"
+                            subprocess.run([
+                                edge_path, "--print", pdf_uri
+                            ], check=True, timeout=20)
+                            time.sleep(2)
+                            return  # Success!
+                        except Exception as e:
+                            errors.append(f"Edge: {str(e)}")
+                            last_error = e
+                            continue
+                
+                # If all methods fail, provide helpful error with details
+                error_details = "\n".join(errors) if errors else "All print methods failed silently"
                 raise Exception(
-                    "Could not print PDF. Please try one of these:\n"
-                    "1. Install Adobe Reader (free) from adobe.com\n"
-                    "2. Set a default PDF application: Right-click PDF -> Open with -> Choose default\n"
-                    "3. Manually print the temporary PDF files from the invoice folder\n"
-                    f"Temporary file location: {pdf_path}"
+                    f"Could not print PDF.\n\n"
+                    f"Tried methods: Adobe Reader, PowerShell, os.startfile, Edge\n"
+                    f"Errors: {error_details}\n\n"
+                    f"Solutions:\n"
+                    f"1. Install Adobe Reader (free) from adobe.com\n"
+                    f"2. Set a default PDF application: Right-click PDF -> Open with -> Choose default\n"
+                    f"3. Manually print the temporary PDF file:\n"
+                    f"   {pdf_path}"
                 )
                     
             elif system == "Darwin":  # macOS
@@ -310,25 +325,33 @@ class InvoicePrinterApp:
                     # Verify temp file
                     verify_reader = PdfReader(temp_path)
                     final_pages = len(verify_reader.pages)
-                    expected_final = triplicate_count * 3  # 3 copies of each triplicate page
+                    expected_final = triplicate_count  # Just the last page(s), once
                     
                     self.log_status(f"  - Original PDF pages: {total_pages}")
-                    self.log_status(f"  - Triplicate pages (last {triplicate_count} page(s))")
-                    self.log_status(f"  - Pages to print: {final_pages} (3 copies of each)")
+                    self.log_status(f"  - Triplicate pages: last {triplicate_count} page(s)")
+                    self.log_status(f"  - Pages to print: {final_pages} (once)")
                     self.log_status(f"  - Expected pages: {expected_final}")
                     
                     if final_pages != expected_final:
                         self.log_status(f"  - ⚠ WARNING: Page count mismatch!")
                     
                     self.log_status(f"  - Temp file: {os.path.basename(temp_path)}")
+                    self.log_status(f"  - Temp file path: {temp_path}")
                     self.log_status(f"  - Sending to printer...")
                     
                     # Print the TEMP file (not the original)
                     if not os.path.exists(temp_path):
                         raise Exception(f"Temp file not found: {temp_path}")
                     
-                    self.print_pdf(temp_path)
-                    self.log_status(f"  - ✓ Printed successfully ({final_pages} pages - triplicate only)")
+                    try:
+                        self.print_pdf(temp_path)
+                        self.log_status(f"  - ✓ Print command sent successfully")
+                        self.log_status(f"  - Please check your printer queue")
+                    except Exception as print_error:
+                        self.log_status(f"  - ✗ Print error: {str(print_error)}")
+                        self.log_status(f"  - Temp file saved at: {temp_path}")
+                        self.log_status(f"  - You can manually print this file if needed")
+                        raise
                     
                     # Small delay between print jobs to avoid overwhelming printer
                     if i < len(invoice_files):

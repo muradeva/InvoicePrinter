@@ -36,8 +36,8 @@ class InvoicePrinterCLI:
         
     def create_triplicate_pdf(self, pdf_path):
         """
-        Create a new PDF with ONLY triplicate copies of last pages
-        (No original pages, just the triplicate pages)
+        Create a new PDF with ONLY the triplicate pages (last page(s))
+        (No original pages, just the last page(s) printed once)
         """
         try:
             reader = PdfReader(pdf_path)
@@ -49,13 +49,12 @@ class InvoicePrinterCLI:
             if triplicate_count == 0:
                 raise Exception("PDF has less than 3 pages - no triplicate pages to print")
             
-            # Add ONLY the triplicate pages (3 copies of each last page)
+            # Add ONLY the triplicate pages (last page(s), printed once)
             start_triplicate = total_pages - triplicate_count
-            # Add 3 copies of each last page(s)
-            for copy_num in range(3):  # 3 copies total
-                for i in range(start_triplicate, total_pages):
-                    page = reader.pages[i]
-                    writer.add_page(page)
+            # Add the last page(s) once
+            for i in range(start_triplicate, total_pages):
+                page = reader.pages[i]
+                writer.add_page(page)
             
             # Save to temporary file
             temp_path = pdf_path.replace('.pdf', '_temp_print.pdf')
@@ -73,53 +72,61 @@ class InvoicePrinterCLI:
         Works on both Windows and Mac
         """
         system = platform.system()
+        errors = []
         
         try:
             if system == "Windows":
                 # Windows: Try multiple methods to print PDF
+                
                 # Method 1: Try using Adobe Reader if available (most reliable)
-                try:
-                    acroread_paths = [
-                        r"C:\Program Files\Adobe\Acrobat DC\Acrobat\Acrobat.exe",
-                        r"C:\Program Files (x86)\Adobe\Acrobat Reader DC\Reader\AcroRd32.exe",
-                        r"C:\Program Files\Adobe\Acrobat Reader DC\Reader\AcroRd32.exe",
-                    ]
-                    for acroread_path in acroread_paths:
-                        if os.path.exists(acroread_path):
+                acroread_paths = [
+                    r"C:\Program Files\Adobe\Acrobat DC\Acrobat\Acrobat.exe",
+                    r"C:\Program Files (x86)\Adobe\Acrobat Reader DC\Reader\AcroRd32.exe",
+                    r"C:\Program Files\Adobe\Acrobat Reader DC\Reader\AcroRd32.exe",
+                ]
+                for acroread_path in acroread_paths:
+                    if os.path.exists(acroread_path):
+                        try:
                             subprocess.run([
                                 acroread_path, "/t", pdf_path
-                            ], check=True, timeout=20, creationflags=subprocess.CREATE_NO_WINDOW)
+                            ], check=True, timeout=20)
                             time.sleep(2)
-                            return
-                except:
-                    pass
+                            return  # Success!
+                        except Exception as e:
+                            errors.append(f"Adobe Reader: {str(e)}")
+                            continue
                 
                 # Method 2: Try PowerShell with Start-Process and Print verb
                 try:
                     ps_command = f'Start-Process -FilePath "{pdf_path}" -Verb Print -WindowStyle Hidden'
                     result = subprocess.run([
                         "powershell", "-Command", ps_command
-                    ], check=True, timeout=20, capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW)
-                    time.sleep(2)
-                    return
-                except:
-                    pass
+                    ], check=True, timeout=20, capture_output=True, text=True)
+                    if result.returncode == 0:
+                        time.sleep(2)
+                        return  # Success!
+                    else:
+                        errors.append(f"PowerShell: {result.stderr}")
+                except Exception as e:
+                    errors.append(f"PowerShell: {str(e)}")
                 
                 # Method 3: Try os.startfile with print verb
                 try:
                     os.startfile(pdf_path, "print")
                     time.sleep(2)
-                    return
-                except:
-                    pass
+                    return  # Success!
+                except Exception as e:
+                    errors.append(f"os.startfile: {str(e)}")
                 
                 # If all methods fail, provide helpful error
+                error_details = "\n".join(errors) if errors else "All print methods failed"
                 raise Exception(
-                    "Could not print PDF. Please try one of these:\n"
-                    "1. Install Adobe Reader (free) from adobe.com\n"
-                    "2. Set a default PDF application: Right-click PDF -> Open with -> Choose default\n"
-                    "3. Manually print the temporary PDF files from the invoice folder\n"
-                    f"Temporary file location: {pdf_path}"
+                    f"Could not print PDF.\n\n"
+                    f"Errors: {error_details}\n\n"
+                    f"Solutions:\n"
+                    f"1. Install Adobe Reader (free) from adobe.com\n"
+                    f"2. Set a default PDF application\n"
+                    f"3. Manually print: {pdf_path}"
                 )
             elif system == "Darwin":  # macOS
                 # macOS: use lpr command
@@ -197,8 +204,8 @@ class InvoicePrinterCLI:
                 final_pages = len(verify_reader.pages)
                 
                 print(f"  - Original PDF pages: {total_pages}")
-                print(f"  - Triplicate pages (last {triplicate_count} page(s))")
-                print(f"  - Pages to print: {final_pages} (3 copies of each)")
+                print(f"  - Triplicate pages: last {triplicate_count} page(s)")
+                print(f"  - Pages to print: {final_pages} (once)")
                 print(f"  - Sending to printer...", end=" ", flush=True)
                 
                 # Print
