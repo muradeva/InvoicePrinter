@@ -232,6 +232,7 @@ class TriplicateOnlyPrinter:
 
             printed_count = 0
             skipped_count = 0
+            temp_files = []  # Keep track of all temp files
 
             for i, pdf in enumerate(files, 1):
                 filename = Path(pdf).name
@@ -241,21 +242,16 @@ class TriplicateOnlyPrinter:
                 try:
                     # This will raise error if >11 pages
                     temp_pdf, count, total_pages = self.create_triplicate_pdf(pdf)
+                    temp_files.append(temp_pdf)  # Track for later deletion
 
                     self.log(f"  → {total_pages} pages → printing last {count} triplicate page(s) (A5 size)")
                     self.log(f"  → Sending to printer...")
                     self.print_pdf(temp_pdf)
-                    self.log(f"  → Printed successfully\n")
+                    self.log(f"  → Print command sent successfully\n")
                     printed_count += 1
                     
-                    # Delete temp file after successful print
-                    try:
-                        if temp_pdf and os.path.exists(temp_pdf):
-                            os.remove(temp_pdf)
-                    except Exception as e:
-                        self.log(f"  → Warning: Could not delete temp file: {e}\n")
-                    
-                    time.sleep(1)
+                    # Wait longer to ensure print job is queued before moving to next file
+                    time.sleep(3)  # Increased delay to let print job start
 
                 except ValueError as ve:
                     msg = str(ve)
@@ -270,12 +266,22 @@ class TriplicateOnlyPrinter:
 
                 except Exception as e:
                     self.log(f"  → ✗ Print error: {e}\n")
-                    # Try to delete temp file even on error
+                    # Keep temp file on error for debugging
+
+            # Wait 30 seconds to ensure all print jobs are fully processed
+            if temp_files:
+                self.log(f"\nWaiting 30 seconds for print jobs to complete...")
+                time.sleep(30)
+                
+                # Now delete all temp files
+                self.log(f"Cleaning up {len(temp_files)} temporary file(s)...")
+                for temp_file in temp_files:
                     try:
-                        if temp_pdf and os.path.exists(temp_pdf):
-                            os.remove(temp_pdf)
-                    except:
-                        pass
+                        if os.path.exists(temp_file):
+                            os.remove(temp_file)
+                            self.log(f"  → Deleted: {Path(temp_file).name}")
+                    except Exception as e:
+                        self.log(f"  → Warning: Could not delete {Path(temp_file).name}: {e}")
 
             summary = f"\nFinished!\nPrinted triplicate for {printed_count} invoice(s)"
             if skipped_count > 0:
