@@ -3,28 +3,44 @@ REM Build script for Windows .exe
 echo Building Invoice Printer executable...
 echo.
 
-REM Check if virtual environment exists
-if exist "venv" (
-    call venv\Scripts\activate.bat
-) else (
-    echo Creating virtual environment...
-    python -m venv venv
-    call venv\Scripts\activate.bat
+REM Check if dependencies are installed
+python -c "import pypdf" 2>nul
+if errorlevel 1 (
     echo Installing dependencies...
     pip install -r requirements.txt
+) else (
+    echo Dependencies already installed.
+)
+
+REM Check if PyInstaller is installed
+python -c "import PyInstaller" 2>nul
+if errorlevel 1 (
+    echo Installing PyInstaller...
     pip install pyinstaller
 )
 
-REM Build the executable
-python build_exe.py
+echo.
+echo Building executable (this may take a few minutes)...
+echo.
+
+REM Build the executable directly
+pyinstaller --onefile --windowed --name=InvoicePrinter invoice_printer.py
 
 if errorlevel 1 (
     echo.
-    echo Build failed. Trying alternative method...
-    pyinstaller --onefile --windowed --name=InvoicePrinter invoice_printer.py
+    echo Build failed. Please check the error messages above.
+    pause
+    exit /b 1
 )
 
 echo.
-echo Done! Check the 'dist' folder for InvoicePrinter.exe
+echo ========================================
+echo Build successful!
+echo ========================================
+echo.
+echo Executable location: dist\InvoicePrinter.exe
+echo.
+echo You can now copy InvoicePrinter.exe to your invoice folder and run it.
+echo.
 pause
 

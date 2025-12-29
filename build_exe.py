@@ -26,8 +26,6 @@ def build_exe():
         "--onefile",  # Create a single executable file
         "--windowed",  # No console window (GUI only)
         "--name=InvoicePrinter",  # Name of the executable
-        "--icon=NONE",  # No icon (can add .ico file later if needed)
-        "--add-data=README.md;.",  # Include README (optional)
         "invoice_printer.py"
     ]
     
