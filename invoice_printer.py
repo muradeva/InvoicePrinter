@@ -11,6 +11,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 from pathlib import Path
 from pypdf import PdfReader, PdfWriter
+import shutil
 import subprocess
 import platform
 import time
@@ -98,7 +99,8 @@ class InvoicePrinterApp:
         
     def create_triplicate_pdf(self, pdf_path):
         """
-        Create a new PDF with triplicate copies of last pages
+        Create a new PDF with ONLY triplicate copies of last pages
+        (No original pages, just the triplicate pages)
         """
         try:
             reader = PdfReader(pdf_path)
@@ -107,21 +109,32 @@ class InvoicePrinterApp:
             
             triplicate_count = self.get_triplicate_pages(total_pages)
             
-            # Add all original pages
-            for i in range(total_pages):
-                writer.add_page(reader.pages[i])
+            if triplicate_count == 0:
+                raise Exception("PDF has less than 3 pages - no triplicate pages to print")
             
-            # Add triplicate copies of last pages
-            if triplicate_count > 0:
-                start_triplicate = total_pages - triplicate_count
-                for _ in range(2):  # Add 2 more copies (making total 3)
-                    for i in range(start_triplicate, total_pages):
-                        writer.add_page(reader.pages[i])
+            # Add ONLY the triplicate pages (3 copies of each last page)
+            start_triplicate = total_pages - triplicate_count
+            # Add 3 copies of each last page(s)
+            for copy_num in range(3):  # 3 copies total
+                for i in range(start_triplicate, total_pages):
+                    page = reader.pages[i]
+                    writer.add_page(page)
             
             # Save to temporary file
             temp_path = pdf_path.replace('.pdf', '_temp_print.pdf')
             with open(temp_path, 'wb') as output_file:
                 writer.write(output_file)
+            
+            # Verify the temp file was created correctly
+            verify_reader = PdfReader(temp_path)
+            final_page_count = len(verify_reader.pages)
+            expected_pages = triplicate_count * 3  # 3 copies of each triplicate page
+            
+            if final_page_count != expected_pages:
+                raise Exception(
+                    f"PDF creation verification failed: "
+                    f"Expected {expected_pages} pages, got {final_page_count} pages"
+                )
                 
             return temp_path, total_pages, triplicate_count
             
@@ -294,13 +307,28 @@ class InvoicePrinterApp:
                     temp_path, total_pages, triplicate_count = self.create_triplicate_pdf(str(pdf_path))
                     temp_files.append(temp_path)
                     
-                    self.log_status(f"  - Total pages: {total_pages}")
-                    self.log_status(f"  - Triplicate pages: {triplicate_count}")
+                    # Verify temp file
+                    verify_reader = PdfReader(temp_path)
+                    final_pages = len(verify_reader.pages)
+                    expected_final = triplicate_count * 3  # 3 copies of each triplicate page
+                    
+                    self.log_status(f"  - Original PDF pages: {total_pages}")
+                    self.log_status(f"  - Triplicate pages (last {triplicate_count} page(s))")
+                    self.log_status(f"  - Pages to print: {final_pages} (3 copies of each)")
+                    self.log_status(f"  - Expected pages: {expected_final}")
+                    
+                    if final_pages != expected_final:
+                        self.log_status(f"  - ⚠ WARNING: Page count mismatch!")
+                    
+                    self.log_status(f"  - Temp file: {os.path.basename(temp_path)}")
                     self.log_status(f"  - Sending to printer...")
                     
-                    # Print
+                    # Print the TEMP file (not the original)
+                    if not os.path.exists(temp_path):
+                        raise Exception(f"Temp file not found: {temp_path}")
+                    
                     self.print_pdf(temp_path)
-                    self.log_status(f"  - ✓ Printed successfully")
+                    self.log_status(f"  - ✓ Printed successfully ({final_pages} pages - triplicate only)")
                     
                     # Small delay between print jobs to avoid overwhelming printer
                     if i < len(invoice_files):
@@ -313,14 +341,17 @@ class InvoicePrinterApp:
                         temp_files.append(temp_path)
                     continue
             
-            # Cleanup temporary files
-            self.log_status(f"\nCleaning up temporary files...")
+            # Cleanup temporary files (keep them for 5 seconds to verify if needed)
+            self.log_status(f"\nTemporary files will be cleaned up in 5 seconds...")
+            self.log_status(f"(You can check the temp files if needed: {len(temp_files)} files)")
+            time.sleep(5)
+            
             for temp_file in temp_files:
                 try:
                     if os.path.exists(temp_file):
                         os.remove(temp_file)
-                except:
-                    pass
+                except Exception as e:
+                    self.log_status(f"  - Could not delete {os.path.basename(temp_file)}: {str(e)}")
             
             self.log_status(f"\n✓ Process completed!")
             messagebox.showinfo("Success", f"Processed {len(invoice_files)} invoice(s)")

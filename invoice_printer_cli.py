@@ -36,7 +36,8 @@ class InvoicePrinterCLI:
         
     def create_triplicate_pdf(self, pdf_path):
         """
-        Create a new PDF with triplicate copies of last pages
+        Create a new PDF with ONLY triplicate copies of last pages
+        (No original pages, just the triplicate pages)
         """
         try:
             reader = PdfReader(pdf_path)
@@ -45,16 +46,16 @@ class InvoicePrinterCLI:
             
             triplicate_count = self.get_triplicate_pages(total_pages)
             
-            # Add all original pages
-            for i in range(total_pages):
-                writer.add_page(reader.pages[i])
+            if triplicate_count == 0:
+                raise Exception("PDF has less than 3 pages - no triplicate pages to print")
             
-            # Add triplicate copies of last pages
-            if triplicate_count > 0:
-                start_triplicate = total_pages - triplicate_count
-                for _ in range(2):  # Add 2 more copies (making total 3)
-                    for i in range(start_triplicate, total_pages):
-                        writer.add_page(reader.pages[i])
+            # Add ONLY the triplicate pages (3 copies of each last page)
+            start_triplicate = total_pages - triplicate_count
+            # Add 3 copies of each last page(s)
+            for copy_num in range(3):  # 3 copies total
+                for i in range(start_triplicate, total_pages):
+                    page = reader.pages[i]
+                    writer.add_page(page)
             
             # Save to temporary file
             temp_path = pdf_path.replace('.pdf', '_temp_print.pdf')
@@ -191,8 +192,13 @@ class InvoicePrinterCLI:
                 temp_path, total_pages, triplicate_count = self.create_triplicate_pdf(str(pdf_path))
                 temp_files.append(temp_path)
                 
-                print(f"  - Total pages: {total_pages}")
-                print(f"  - Triplicate pages: {triplicate_count}")
+                # Verify temp file
+                verify_reader = PdfReader(temp_path)
+                final_pages = len(verify_reader.pages)
+                
+                print(f"  - Original PDF pages: {total_pages}")
+                print(f"  - Triplicate pages (last {triplicate_count} page(s))")
+                print(f"  - Pages to print: {final_pages} (3 copies of each)")
                 print(f"  - Sending to printer...", end=" ", flush=True)
                 
                 # Print
